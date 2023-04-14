@@ -8,6 +8,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/string_cast.hpp>
+#include <string>
 
 #include <learnopengl/filesystem.h>
 #include <learnopengl/shader.h>
@@ -32,6 +34,7 @@ unsigned int loadCubemap(vector<std::string> faces);
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
+bool flashlightKeyPressed = true;
 
 // camera
 
@@ -53,15 +56,28 @@ struct PointLight {
     float linear;
     float quadratic;
 };
+struct SpotLight {
+    glm::vec3 ambient;
+    glm::vec3 diffuse;
+    glm::vec3 specular;
+
+    float constant;
+    float linear;
+    float quadratic;
+};
 
 struct ProgramState {
     glm::vec3 clearColor = glm::vec3(0);
     bool ImGuiEnabled = false;
     Camera camera;
     bool CameraMouseMovementUpdateEnabled = true;
-    glm::vec3 backpackPosition = glm::vec3(0.0f);
-    float backpackScale = 1.0f;
+    glm::vec3 housePosition = glm::vec3(-3.0f, 0.0f, -5.0f);
+    float houseScale = 1.0f;
+    glm::vec3 groundPosition = glm::vec3(0.0f);
+    float groundScale = 4.0f;
+    float treeScale = 0.1;
     PointLight pointLight;
+    SpotLight spotLight;
     ProgramState()
             : camera(glm::vec3(0.0f, 0.0f, 3.0f)) {}
 
@@ -126,6 +142,7 @@ int main() {
     }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetKeyCallback(window, key_callback);
@@ -214,8 +231,22 @@ int main() {
     };
     // load models
     // -----------
-    Model ourModel("resources/objects/tent/tent.obj");
+    Model ourModel("resources/objects/ground/ground.obj");
     ourModel.SetShaderTextureNamePrefix("material.");
+    Model house("resources/objects/house/OldHouse.obj");
+    house.SetShaderTextureNamePrefix("material1.");
+    Model tree1("resources/objects/tree1/deadtree.obj");
+    house.SetShaderTextureNamePrefix("material2.");
+    Model tree1_1("resources/objects/tree1/deadtree.obj");
+    house.SetShaderTextureNamePrefix("material2.");
+    Model tree1_2("resources/objects/tree1/deadtree.obj");
+    house.SetShaderTextureNamePrefix("material2.");
+    Model tree2("resources/objects/tree2/deadtree.obj");
+    house.SetShaderTextureNamePrefix("material3.");
+    Model tree2_1("resources/objects/tree2/deadtree.obj");
+    house.SetShaderTextureNamePrefix("material3.");
+    Model tree2_2("resources/objects/tree2/deadtree.obj");
+    house.SetShaderTextureNamePrefix("material3.");
 
     // skybox VAO
     unsigned int skyboxVAO, skyboxVBO;
@@ -229,24 +260,34 @@ int main() {
 
     vector<std::string> faces
             {
-                    FileSystem::getPath("resources/skybox/back.jpg"),
-                    FileSystem::getPath("resources/skybox/bottom.jpg"),
-                    FileSystem::getPath("resources/skybox/front.jpg"),
-                    FileSystem::getPath("resources/skybox/left.jpg"),
-                    FileSystem::getPath("resources/skybox/right.jpg"),
-                    FileSystem::getPath("resources/skybox/top.jpg")
+                    FileSystem::getPath("resources/skybox/left.png"),
+                    FileSystem::getPath("resources/skybox/right.png"),
+                    FileSystem::getPath("resources/skybox/bottom.png"),
+                    FileSystem::getPath("resources/skybox/top.png"),
+                    FileSystem::getPath("resources/skybox/front.png"),
+                    FileSystem::getPath("resources/skybox/back.png")
             };
     unsigned int cubemapTexture = loadCubemap(faces);
 
     PointLight& pointLight = programState->pointLight;
-    pointLight.position = glm::vec3(0.0, 4.0, 0.0);
+    pointLight.position = glm::vec3(0.0, 10.0, 0.0);
     pointLight.ambient = glm::vec3(0.1, 0.1, 0.1);
     pointLight.diffuse = glm::vec3(0.2, 0.2, 0.2);
-    pointLight.specular = glm::vec3(1.0, 1.0, 1.0);
+    pointLight.specular = glm::vec3(0.9, 0.9, 0.9);
+
 
     pointLight.constant = 1.0f;
-    pointLight.linear = 0.09f;
+    pointLight.linear = 0.08f;
     pointLight.quadratic = 0.032f;
+
+    SpotLight& spotLight = programState->spotLight;
+    spotLight.ambient = glm::vec3(2, 2, 2);
+    spotLight.diffuse = glm::vec3(2, 2, 2);
+    spotLight.specular = glm::vec3(2, 2, 2);
+
+    spotLight.constant = 1.0f;
+    spotLight.linear = 0.08f;
+    spotLight.quadratic = 0.032f;
 
 
     // shader configuration
@@ -274,6 +315,7 @@ int main() {
         processInput(window);
 
 
+        glm::to_string(programState->camera.Position);
         // render
         // ------
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
@@ -282,7 +324,7 @@ int main() {
         // draw scene as normal
         shader.use();
         glm::mat4 model = glm::mat4(1.0f);
-        glm::mat4 view = programState->camera.GetViewMatrix();
+        glm::mat4 view = glm::mat4(0.0f);
         glm::mat4 projection = glm::perspective(glm::radians(programState->camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         shader.setMat4("model", model);
         shader.setMat4("view", view);
@@ -305,7 +347,6 @@ int main() {
 
         // don't forget to enable shader before setting uniforms
         ourShader.use();
-
         // directional light
         ourShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
         ourShader.setVec3("dirLight.ambient", 0.1f, 0.1f, 0.1f);
@@ -323,15 +364,16 @@ int main() {
         ourShader.setVec3("viewPosition", programState->camera.Position);
         ourShader.setFloat("material.shininess", 32.0f);
 
+
         // spotLight
         ourShader.setVec3("spotLight.position", programState->camera.Position);
         ourShader.setVec3("spotLight.direction", programState->camera.Front);
-        ourShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
-        ourShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
-        ourShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
-        ourShader.setFloat("spotLight.constant", 1.0f);
-        ourShader.setFloat("spotLight.linear", 0.09);
-        ourShader.setFloat("spotLight.quadratic", 0.032);
+        ourShader.setVec3("spotLight.ambient", spotLight.ambient);
+        ourShader.setVec3("spotLight.diffuse", spotLight.diffuse);
+        ourShader.setVec3("spotLight.specular", spotLight.specular);
+        ourShader.setFloat("spotLight.constant", spotLight.constant);
+        ourShader.setFloat("spotLight.linear", spotLight.linear);
+        ourShader.setFloat("spotLight.quadratic", spotLight.quadratic);
         ourShader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
         ourShader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 
@@ -345,10 +387,62 @@ int main() {
         // render the loaded model
         model = glm::mat4(1.0f);
         model = glm::translate(model,
-                               programState->backpackPosition); // translate it down so it's at the center of the scene
-        model = glm::scale(model, glm::vec3(programState->backpackScale));    // it's a bit too big for our scene, so scale it down
+                               programState->groundPosition); // translate it down so it's at the center of the scene
+        model = glm::scale(model, glm::vec3(programState->groundScale));    // it's a bit too big for our scene, so scale it down
         ourShader.setMat4("model", model);
         ourModel.Draw(ourShader);
+
+        glm::mat4 housemodel = glm::mat4(1.0f);
+        housemodel = glm::translate(housemodel,
+                               programState->housePosition); // translate it down so it's at the center of the scene
+        housemodel = glm::scale(housemodel, glm::vec3(programState->houseScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", housemodel);
+        house.Draw(ourShader);
+
+        glm::mat4 tree1model = glm::mat4(1.0f);
+        tree1model = glm::translate(tree1model,
+                                    glm::vec3(8.0f, 0.0f, 3.0f)); // translate it down so it's at the center of the scene
+        tree1model = glm::scale(tree1model, glm::vec3(programState->treeScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", tree1model);
+        tree1.Draw(ourShader);
+
+        glm::mat4 tree1_1model = glm::mat4(1.0f);
+        tree1_1model = glm::translate(tree1_1model,
+                                    glm::vec3(7.0f, 0.0f, -2.0f)); // translate it down so it's at the center of the scene
+        tree1_1model = glm::scale(tree1_1model, glm::vec3(programState->treeScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", tree1_1model);
+        tree1_1.Draw(ourShader);
+
+        glm::mat4 tree1_2model = glm::mat4(1.0f);
+        tree1_2model = glm::translate(tree1_2model,
+                                    glm::vec3(6.0f, 0.0f, 12.0f)); // translate it down so it's at the center of the scene
+        tree1_2model = glm::scale(tree1_2model, glm::vec3(programState->treeScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", tree1_2model);
+        tree1_2.Draw(ourShader);
+
+        glm::mat4 tree2model = glm::mat4(1.0f);
+        tree2model = glm::translate(tree2model,
+                                    glm::vec3(7.0f, 0.0f, 7.0f)); // translate it down so it's at the center of the scene
+        tree2model = glm::scale(tree2model, glm::vec3(programState->treeScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", tree2model);
+        tree2.Draw(ourShader);
+
+        glm::mat4 tree2_1model = glm::mat4(1.0f);
+        tree2_1model = glm::translate(tree2_1model,
+                                    glm::vec3(5.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
+        tree2_1model = glm::scale(tree2_1model, glm::vec3(programState->treeScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", tree2_1model);
+        tree2_1.Draw(ourShader);
+
+        glm::mat4 tree2_2model = glm::mat4(1.0f);
+        tree2_2model = glm::translate(tree2_2model,
+                                    glm::vec3(4.0f, 0.0f, -8.0f)); // translate it down so it's at the center of the scene
+        tree2_2model = glm::scale(tree2_2model, glm::vec3(programState->treeScale));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", tree2_2model);
+        tree2_2.Draw(ourShader);
+        
+
+
 
         if (programState->ImGuiEnabled)
             DrawImGui(programState);
@@ -391,6 +485,8 @@ void processInput(GLFWwindow *window) {
         programState->camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         programState->camera.ProcessKeyboard(RIGHT, deltaTime);
+
+
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -438,8 +534,8 @@ void DrawImGui(ProgramState *programState) {
         ImGui::Text("Hello text");
         ImGui::SliderFloat("Float slider", &f, 0.0, 1.0);
         ImGui::ColorEdit3("Background color", (float *) &programState->clearColor);
-        ImGui::DragFloat3("Backpack position", (float*)&programState->backpackPosition);
-        ImGui::DragFloat("Backpack scale", &programState->backpackScale, 0.05, 0.1, 4.0);
+        ImGui::DragFloat3("House position", (float*)&programState->housePosition);
+        ImGui::DragFloat("House scale", &programState->houseScale, 0.05, 0.1, 4.0);
 
         ImGui::DragFloat("pointLight.constant", &programState->pointLight.constant, 0.05, 0.0, 1.0);
         ImGui::DragFloat("pointLight.linear", &programState->pointLight.linear, 0.05, 0.0, 1.0);
@@ -462,6 +558,20 @@ void DrawImGui(ProgramState *programState) {
 }
 
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS)
+    {
+        if(!flashlightKeyPressed){
+            programState->spotLight.ambient = glm::vec3(2, 2, 2);
+            programState->spotLight.diffuse = glm::vec3(2, 2, 2);
+            programState->spotLight.specular = glm::vec3(2, 2, 2);
+            flashlightKeyPressed = true;
+        }else{
+            programState->spotLight.ambient = glm::vec3(0, 0, 0);
+            programState->spotLight.diffuse = glm::vec3(0, 0, 0);
+            programState->spotLight.specular = glm::vec3(0, 0, 0);
+            flashlightKeyPressed = false;
+        }
+    }
     if (key == GLFW_KEY_F1 && action == GLFW_PRESS) {
         programState->ImGuiEnabled = !programState->ImGuiEnabled;
         if (programState->ImGuiEnabled) {
