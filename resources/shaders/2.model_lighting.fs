@@ -51,6 +51,7 @@ uniform SpotLight spotLight;
 uniform PointLight pointLight;
 uniform Material material;
 
+
 uniform vec3 viewPosition;
 
 // calculates the color when using a directional light.
