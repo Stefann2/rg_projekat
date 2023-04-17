@@ -51,7 +51,6 @@ uniform SpotLight spotLight;
 uniform PointLight pointLight;
 uniform Material material;
 
-
 uniform vec3 viewPosition;
 
 // calculates the color when using a directional light.
@@ -122,6 +121,7 @@ void main()
 {
     vec3 normal = normalize(Normal);
     vec3 viewDir = normalize(viewPosition - FragPos);
+
     vec3 result = CalcPointLight(pointLight, normal, FragPos, viewDir) + CalcDirLight(dirLight, normal, viewDir) + CalcSpotLight(spotLight, normal, FragPos, viewDir);
     FragColor = vec4(result, 1.0);
 }

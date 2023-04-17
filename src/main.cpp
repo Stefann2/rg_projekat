@@ -16,7 +16,9 @@
 #include <learnopengl/camera.h>
 #include <learnopengl/model.h>
 
+
 #include <iostream>
+#include <random>
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 
@@ -31,11 +33,15 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 unsigned int loadTexture(const char *path);
 unsigned int loadCubemap(vector<std::string> faces);
 
+void renderQuad();
+void renderCube();
+
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 bool flashlightKeyPressed = true;
-bool speedKeyPressed = false;
+bool hdr = true;
+float exposure = 0.2f;
 
 // camera
 
@@ -47,8 +53,13 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+float lerp(float a, float b, float f)
+{
+    return a + f * (b - a);
+}
+
 struct PointLight {
-    glm::vec3 position;
+    glm::vec3 position = glm::vec3();
     glm::vec3 ambient;
     glm::vec3 diffuse;
     glm::vec3 specular;
@@ -121,6 +132,8 @@ ProgramState *programState;
 
 void DrawImGui(ProgramState *programState);
 
+bool shadows = true;
+
 int main() {
     // glfw: initialize and configure
     // ------------------------------
@@ -191,6 +204,44 @@ int main() {
     Shader shader("resources/shaders/6.1.cubemaps.vs", "resources/shaders/6.1.cubemaps.fs");
     Shader skyboxShader("resources/shaders/6.1.skybox.vs", "resources/shaders/6.1.skybox.fs");
     Shader blendShader("resources/shaders/3.2.blending.vs", "resources/shaders/3.2.blending.fs");
+    Shader lightingShader("resources/shaders/6.lighting.vs", "resources/shaders/6.lighting.fs");
+    Shader hdrShader("resources/shaders/6.hdr.vs", "resources/shaders/6.hdr.fs");
+
+    // configure floating point framebuffer
+    // ------------------------------------
+    unsigned int hdrFBO;
+    glGenFramebuffers(1, &hdrFBO);
+    // create floating point color buffer
+    unsigned int colorBuffer;
+    glGenTextures(1, &colorBuffer);
+    glBindTexture(GL_TEXTURE_2D, colorBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // create depth buffer (renderbuffer)
+    unsigned int rboDepth;
+    glGenRenderbuffers(1, &rboDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
+    // attach buffers
+    glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorBuffer, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "Framebuffer not complete!" << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // lighting info
+    // -------------
+    // positions
+    std::vector<glm::vec3> lightPositions;
+    lightPositions.push_back(glm::vec3( -0.1f,  4.0f, 1.0f)); // back light
+
+
+    // colors
+    std::vector<glm::vec3> lightColors;
+    lightColors.push_back(glm::vec3(2.0f, 2.0f, 2.0f));
+
 
     float cubeVertices[] = {
             // back face
@@ -298,6 +349,8 @@ int main() {
     house.SetShaderTextureNamePrefix("material3.");
     Model tree2_2("resources/objects/tree2/deadtree.obj");
     house.SetShaderTextureNamePrefix("material3.");
+    Model rose("resources/objects/rose/rose.obj");
+    rose.SetShaderTextureNamePrefix("material3.");
 
     // cube VAO
     unsigned int cubeVAO, cubeVBO;
@@ -311,6 +364,7 @@ int main() {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
 
+
     // skybox VAO
     unsigned int skyboxVAO, skyboxVBO;
     glGenVertexArrays(1, &skyboxVAO);
@@ -323,7 +377,6 @@ int main() {
 
     unsigned int cubeTexture = loadTexture(FileSystem::getPath("resources/textures/window.png").c_str());
 
-    
     vector<std::string> faces
             {
                     FileSystem::getPath("resources/skybox/left.png"),
@@ -335,25 +388,27 @@ int main() {
             };
     unsigned int cubemapTexture = loadCubemap(faces);
 
+
+
     PointLight& pointLight = programState->pointLight;
-    pointLight.position = glm::vec3(0.0, 10.0, 0.0);
-    pointLight.ambient = glm::vec3(0.1, 0.1, 0.1);
-    pointLight.diffuse = glm::vec3(0.2, 0.2, 0.2);
+    pointLight.position = glm::vec3(-0.1, 4.0, 1.0);
+    pointLight.ambient = glm::vec3(0.5, 0.5, 0.5);
+    pointLight.diffuse = glm::vec3(1, 1, 1);
     pointLight.specular = glm::vec3(0.9, 0.9, 0.9);
 
 
-    pointLight.constant = 1.0f;
-    pointLight.linear = 0.08f;
+    pointLight.constant = 0.9f;
+    pointLight.linear = 0.3f;
     pointLight.quadratic = 0.032f;
 
     SpotLight& spotLight = programState->spotLight;
-    spotLight.ambient = glm::vec3(2, 2, 2);
-    spotLight.diffuse = glm::vec3(2, 2, 2);
+    spotLight.ambient = glm::vec3(4, 4, 4);
+    spotLight.diffuse = glm::vec3(4, 4, 4);
     spotLight.specular = glm::vec3(2, 2, 2);
 
-    spotLight.constant = 1.0f;
-    spotLight.linear = 0.08f;
-    spotLight.quadratic = 0.032f;
+    spotLight.constant = 0.7f;
+    spotLight.linear = 0.04f;
+    spotLight.quadratic = 0.022f;
 
 
     // shader configuration
@@ -367,7 +422,16 @@ int main() {
     skyboxShader.use();
     skyboxShader.setInt("skybox", 0);
 
+    lightingShader.use();
+    lightingShader.setInt("diffuseTexture", 0);
+    
+    hdrShader.use();
+    hdrShader.setInt("hdrBuffer", 0);
 
+
+    // lighting info
+    // -------------
+    glm::vec3 lightPos(0.0f, 0.0f, 0.0f);
     // draw in wireframe
     //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
@@ -391,8 +455,8 @@ int main() {
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
-
+        glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // draw scene as normal
         shader.use();
         glm::mat4 model = glm::mat4(1.0f);
@@ -402,7 +466,17 @@ int main() {
         shader.setMat4("view", view);
         shader.setMat4("projection", projection);
 
-
+        lightingShader.use();
+        lightingShader.setMat4("projection", projection);
+        lightingShader.setMat4("view", view);
+        // set lighting uniforms
+        for (unsigned int i = 0; i < lightPositions.size(); i++)
+        {
+            lightingShader.setVec3("lights[" + std::to_string(i) + "].Position", lightPositions[i]);
+            lightingShader.setVec3("lights[" + std::to_string(i) + "].Color", lightColors[i]);
+        }
+        lightingShader.setVec3("viewPos", programState->camera.Position);
+        
         // draw skybox as last
         glDepthFunc(GL_LEQUAL);  // change depth function so depth test passes when values are equal to depth buffer's content
         skyboxShader.use();
@@ -435,7 +509,6 @@ int main() {
         ourShader.setVec3("dirLight.diffuse", 0.2f, 0.2f, 0.2f);
         ourShader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
 
-        pointLight.position = glm::vec3(0.0, 4.0f, 0.0);
         ourShader.setVec3("pointLight.position", pointLight.position);
         ourShader.setVec3("pointLight.ambient", pointLight.ambient);
         ourShader.setVec3("pointLight.diffuse", pointLight.diffuse);
@@ -528,6 +601,8 @@ int main() {
         ourShader.setMat4("model", tree2_2model);
         tree2_2.Draw(ourShader);
 
+
+
         // draw objects
         blendShader.use();
         blendShader.setMat4("projection", projection);
@@ -538,12 +613,33 @@ int main() {
         glBindVertexArray(cubeVAO);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, cubeTexture);
-        cubeModel = glm::translate(cubeModel, glm::vec3(0.0f, 1.1f, 4.0f));
-        cubeModel = glm::scale(cubeModel, glm::vec3(2.0f));
+        cubeModel = glm::translate(cubeModel, glm::vec3(0.0f, 0.8f, 4.0f));
+        cubeModel = glm::scale(cubeModel, glm::vec3(1.5f));
         ourShader.setMat4("model", cubeModel);
         glDrawArrays(GL_TRIANGLES, 0, 36);
         glDepthFunc(GL_LESS); // set depth function back to default
 
+
+
+        ourShader.use();
+        glm::mat4 rosemodel = glm::mat4(1.0f);
+        rosemodel = glm::translate(rosemodel,
+                                   glm::vec3(0.0f, 0.5f, 4.0f)); // translate it down so it's at the center of the scene
+        rosemodel = glm::scale(rosemodel, glm::vec3(0.02f));    // it's a bit too big for our scene, so scale it down
+        ourShader.setMat4("model", rosemodel);
+        rose.Draw(ourShader);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // 2. now render floating point color buffer to 2D quad and tonemap HDR colors to default framebuffer's (clamped) color range
+        // --------------------------------------------------------------------------------------------------------------------------
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        hdrShader.use();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, colorBuffer);
+        hdrShader.setInt("hdr", hdr);
+        hdrShader.setFloat("exposure", exposure);
+        renderQuad();
 
         if (programState->ImGuiEnabled)
             DrawImGui(programState);
@@ -652,6 +748,7 @@ void DrawImGui(ProgramState *programState) {
         ImGui::DragFloat3("House position", (float*)&programState->housePosition);
         ImGui::DragFloat("House scale", &programState->houseScale, 0.05, 0.1, 4.0);
 
+        ImGui::DragFloat3("pointLight.position", (float*)&programState->pointLight.position);
         ImGui::DragFloat("pointLight.constant", &programState->pointLight.constant, 0.05, 0.0, 1.0);
         ImGui::DragFloat("pointLight.linear", &programState->pointLight.linear, 0.05, 0.0, 1.0);
         ImGui::DragFloat("pointLight.quadratic", &programState->pointLight.quadratic, 0.05, 0.0, 1.0);
@@ -676,8 +773,8 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS)
     {
         if(!flashlightKeyPressed){
-            programState->spotLight.ambient = glm::vec3(2, 2, 2);
-            programState->spotLight.diffuse = glm::vec3(2, 2, 2);
+            programState->spotLight.ambient = glm::vec3(4, 4, 4);
+            programState->spotLight.diffuse = glm::vec3(4, 4, 4);
             programState->spotLight.specular = glm::vec3(2, 2, 2);
             flashlightKeyPressed = true;
         }else{
@@ -777,4 +874,34 @@ unsigned int loadCubemap(vector<std::string> faces)
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     return textureID;
+}
+// renderQuad() renders a 1x1 XY quad in NDC
+// -----------------------------------------
+unsigned int quadVAO = 0;
+unsigned int quadVBO;
+void renderQuad()
+{
+    if (quadVAO == 0)
+    {
+        float quadVertices[] = {
+                // positions        // texture Coords
+                -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+                -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+                1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+                1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+        };
+        // setup plane VAO
+        glGenVertexArrays(1, &quadVAO);
+        glGenBuffers(1, &quadVBO);
+        glBindVertexArray(quadVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    }
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
 }
