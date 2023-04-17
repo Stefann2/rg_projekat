@@ -5,3 +5,5 @@ Na dugme F se pali/gasi lampa
 Ako drzimo left shift mozemo se pomerati brze
 Normalno pomeranje je na WASD
 
+Screen record projekta stavljen u folder video 
+
